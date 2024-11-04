@@ -1,0 +1,111 @@
+import numpy as np
+import os
+import py21cmfast as p21c
+from py21cmfast_tools import calculate_ps
+from multiprocessing import Pool, cpu_count
+
+def compute_redshifts(file):
+    cone = np.load(file)
+    image = cone['image']
+    label = cone['label']
+    cosmo_params = p21c.CosmoParams(OMm=label[1])
+    astro_params = p21c.AstroParams(INHOMO_RECO=True)
+    user_params = p21c.UserParams(HII_DIM=140, BOX_LEN=200)
+    flag_options = p21c.FlagOptions()
+    sim_lightcone = p21c.LightCone(5., user_params, cosmo_params, astro_params, flag_options, 0, {"brightness_temp": image}, 35.05)
+    redshifts = sim_lightcone.lightcone_redshifts
+    return redshifts
+
+def get_xH_values(node_redshifts, global_xHI, target_redshifts):
+    closest_xHI_values = []
+    for target_redshift in target_redshifts:
+        closest_index = np.abs(np.array(node_redshifts) - target_redshift).argmin()
+        closest_xHI_values.append(global_xHI[closest_index])
+    return closest_xHI_values
+
+def check_and_recompute_ps(ps_result, slice_data, redshifts, box_length, box_side_shape, calc_params):
+    ps_2d = ps_result['final_ps_2D']
+    if ps_2d.shape == (1, 10, 9):
+        print(f"Power spectrum has shape {ps_2d.shape}. Recomputing with k_par_bins=11.")
+        new_ps_result = calculate_ps(
+            slice_data,
+            redshifts,
+            box_length=box_length,
+            box_side_shape=box_side_shape,
+            chunk_size=slice_data.shape[2] - 1,
+            calc_2d=True,
+            calc_1d=False,
+            calc_global=False,
+            log_bins=True,
+            nbins=10,
+            kpar_bins=11
+        )
+        return new_ps_result['final_ps_2D']
+    return ps_2d
+
+def process_file(file_info):
+    file, output_directory, ps_redshifts = file_info
+    
+    data = np.load(file)
+    image = data['image']
+    tau = data['tau']
+    gxH = data['gxH'] # Benedikt
+    #gxH = data['node_gxH'] # Lara
+    #gxH_redshifts = data['node_redshifts'] # Lara
+    gxH_redshifts = np.load('./redshifts5.npy') #Benedikt
+    lc_redshifts = compute_redshifts(file) #Benedikt
+    #lc_redshifts = data['image_redshifts'] # Lara
+    
+    # Compute xH values for specific redshifts
+    xH_values = get_xH_values(gxH_redshifts, gxH, ps_redshifts)
+
+    # Calculate power spectrum
+    ps_result = calculate_ps(
+        lc=image,
+        lc_redshifts=lc_redshifts,
+        zs=ps_redshifts,
+        box_length=200,
+        box_side_shape=140,
+        calc_2d=True,
+        calc_1d=False,
+        calc_global=False,
+        log_bins=True,
+        nbins=10,
+        kpar_bins=10
+    )
+    
+    power_spectra = ps_result['final_ps_2D']
+    label_redshifts = ps_result['redshifts']
+    label = np.array(xH_values)
+
+    # Save the power spectra and labels
+    output_file = os.path.join(output_directory, f'{os.path.basename(file).replace(".npz", "")}.npz')
+    np.savez(output_file, image=power_spectra, label=label, redshifts=label_redshifts, tau=tau, gxH=gxH)
+    print(f"Processed {file} with power spectra shape: {power_spectra.shape}")
+    print(f"Processed {file} with redshifts shape: {label_redshifts}")
+
+def main():
+    # Directory containing the .npz files
+    directory = '/remote/gpu01a/heneka/21cmlightcones/pure_simulations' # Benedikt
+    #directory = '/remote/gpu01a/heneka/21cmlightcones/pure_simulations_astro' # Lara
+    output_directory = '/remote/gpu01a/pietschke/EoRFlow/data/2DPS_data/global_history/test_z5_20_10x10'
+    os.makedirs(output_directory, exist_ok=True)
+
+    # List all .npz files in the directory
+    npz_files = [os.path.join(directory, f) for f in os.listdir(directory) if f.endswith('.npz')]
+    num_files = 4000  # Adjust as needed
+    npz_files = npz_files[num_files:]
+
+    # Define target redshift intervals
+    ps_redshifts = np.arange(5, 20, 0.5)
+
+    # Prepare arguments for parallel processing
+    file_info_list = [(file, output_directory, ps_redshifts) for file in npz_files]
+
+    # Use multiprocessing to process files in parallel
+    num_processors = min(cpu_count(), len(npz_files))
+    with Pool(num_processors) as pool:
+        pool.map(process_file, file_info_list)
+
+if __name__ == "__main__":
+    main()
