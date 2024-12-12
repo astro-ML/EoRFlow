@@ -73,6 +73,9 @@ class ConditionalInvertibleBlock():
         for k in range(n_blocks):
             flow.append(Fm.AllInOneBlock, cond=0, cond_shape=(cond_dims,),
                         subnet_constructor=subnet_fc, permute_soft=permute_soft)
+        # Append a Sigmoid layer
+        #flow.append(SigmoidModule)
+
         return flow
     
     def load_model(self, location: str) -> bool:
@@ -92,3 +95,46 @@ class ConditionalInvertibleBlock():
                 return False
        
 
+
+# custom invertible sigmoid to be applied in reverse pass (inference)
+class SigmoidModule(Fm.InvertibleModule):
+    def __init__(self, dims_in, dims_c=[]):
+        super().__init__(dims_in, dims_c)
+
+    def forward(self, x, rev=False, jac=True):
+        if not rev:
+            # Forward pass: Apply inverse sigmoid (logit)
+            y = []
+            log_jacobian = []
+            for xi in x:
+                # Clamp xi to avoid logit of 0 or 1
+                xi = torch.clamp(xi, min=1e-6, max=1 - 1e-6)
+                yi = torch.log(xi / (1 - xi))
+                y.append(yi)
+                if jac:
+                    log_det_jac = - (torch.log(xi) + torch.log(1 - xi)).sum(dim=1)
+                    log_jacobian.append(log_det_jac)
+            if jac:
+                total_log_jacobian = sum(log_jacobian)
+                return y, total_log_jacobian
+            else:
+                return y
+        else:
+            # Reverse pass: Apply sigmoid
+            y = []
+            log_jacobian = []
+            for xi in x:
+                yi = torch.sigmoid(xi)
+                y.append(yi)
+                if jac:
+                    # Compute the log-determinant of the Jacobian
+                    log_det_jac = (torch.log(yi) + torch.log(1 - yi)).sum(dim=1)
+                    log_jacobian.append(log_det_jac)
+            if jac:
+                total_log_jacobian = sum(log_jacobian)
+                return y, total_log_jacobian
+            else:
+                return y
+
+    def output_dims(self, input_dims):
+        return input_dims

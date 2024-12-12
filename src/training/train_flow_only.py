@@ -16,10 +16,10 @@ from data_loader import PowerSpectrumDataset
 
 lr = 0.001
 batch_size = 16
-num_epochs = 150
+num_epochs = 250
 
 # Define output directory
-output_dir = '/remote/gpu01a/pietschke/EoRFlow/output/flow_only'
+output_dir = '/remote/gpu01a/pietschke/EoRFlow/output/flow_redshift_8_blocks'
 if not os.path.exists(output_dir):
     os.makedirs(output_dir)
 
@@ -65,9 +65,9 @@ logging.info(f"Validation set size: {len(val_subset)}")
 model_params = {
     'flow': {
         'n_dim': 3,  # Inferring 3 xH values
-        'n_blocks': 6, 
+        'n_blocks': 8, # 6
         'n_nodes': 256,  # 256
-        'cond_dims': 300,  # Condition is the flattened 2DPS of size (3 * 10 * 10)
+        'cond_dims': 303,  # Condition is the flattened 2DPS of size (3 * 10 * 10)
         'load': False,  # Load a pre-trained model
         'model_location': 'trained_model.pth',  # Location of the pre-trained model
         'dropout': 0.0,  # Dropout probability

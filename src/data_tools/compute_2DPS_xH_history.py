@@ -86,14 +86,16 @@ def process_file(file_info):
 
 def main():
     # Directory containing the .npz files
-    directory = '/remote/gpu01a/heneka/21cmlightcones/pure_simulations' # Benedikt
+    directory = '/remote/gpu01a/heneka/21cmlightcones/opt_simulations' # Benedikt
     #directory = '/remote/gpu01a/heneka/21cmlightcones/pure_simulations_astro' # Lara
-    output_directory = '/remote/gpu01a/pietschke/EoRFlow/data/2DPS_data/global_history/test_z5_20_10x10'
+    output_directory = '/remote/gpu01a/pietschke/EoRFlow/data/2DPS_data/global_history/test_z5_20_10x10_noise'
     os.makedirs(output_directory, exist_ok=True)
 
     # List all .npz files in the directory
     npz_files = [os.path.join(directory, f) for f in os.listdir(directory) if f.endswith('.npz')]
     num_files = 4000  # Adjust as needed
+    # Select only the first num_files files [:num_files] - training
+    # Skip the first num_files files [num_files:] - testing
     npz_files = npz_files[num_files:]
 
     # Define target redshift intervals

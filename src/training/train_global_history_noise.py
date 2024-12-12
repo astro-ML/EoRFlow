@@ -1,5 +1,6 @@
 import os
 import sys
+# Update your paths if necessary
 sys.path.append('/remote/gpu01a/pietschke/EoRFlow/src/models')
 sys.path.append('/remote/gpu01a/pietschke/EoRFlow/src/data_tools')
 
@@ -11,16 +12,17 @@ import matplotlib.pyplot as plt
 import numpy as np
 import logging
 
-from cnn import CNN3D_SKA as CNN   # Use the updated CNN2D_film model from above
+# Import the modified CNN model
+from cnn import CNN3D_film as CNN  
 from flow import ConditionalInvertibleBlock
-from data_loader import PowerSpectrumDataset_SKA
+from data_loader import PowerSpectrumDataset_global as PowerSpectrumDataset
 
 lr = 0.001
-batch_size = 32
-num_epochs = 500
+batch_size = 16
+num_epochs = 1000
 
 # Define output directory
-output_dir = '/remote/gpu01a/pietschke/EoRFlow/output/SKA_3D'
+output_dir = '/remote/gpu01a/pietschke/EoRFlow/output/full_EoR_noise_3D_6_256_30cond'
 if not os.path.exists(output_dir):
     os.makedirs(output_dir)
 
@@ -38,12 +40,20 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"Using device: {device}")
 
 # Initialize dataset
-data_train = ['/remote/gpu01a/pietschke/EoRFlow/data/2DPS_data/train_10x10', '/remote/gpu01a/pietschke/EoRFlow/data/2DPS_data/train_10x10_2']
-train_dataset = PowerSpectrumDataset_SKA(data_train)
+#data_train=['/remote/gpu01a/pietschke/EoRFlow/data/2DPS_data/global_history/train_z5_20_10x10']
+data_train = ['/remote/gpu01a/pietschke/EoRFlow/data/2DPS_data/global_history/train_z5_20_10x10_noise', 
+'/remote/gpu01a/pietschke/EoRFlow/data/2DPS_data/global_history/train_z5_20_10x10_noise_astro']
+train_dataset = PowerSpectrumDataset(data_train, exclude_unfinished_reionization=True, exclude_early_reionization=False)
 
-# Add redshift as condition
-z1, z2, z3 = 6.54, 7.19, 7.96
-redshifts = torch.tensor([z1/10, z2/10, z3/10], dtype=torch.float32).to(device)  # 3 redshifts normalized
+# Adjust redshift values as needed
+# For example, if you have 10 redshift slices, adjust accordingly
+redshift_values = np.array([ 5.        ,  5.51724138,  6.03448276,  6.55172414,  7.06896552,
+        7.5862069 ,  8.10344828,  8.62068966,  9.13793103,  9.65517241,
+       10.17241379, 10.68965517, 11.20689655, 11.72413793, 12.24137931,
+       12.75862069, 13.27586207, 13.79310345, 14.31034483, 14.82758621,
+       15.34482759, 15.86206897, 16.37931034, 16.89655172, 17.4137931 ,
+       17.93103448, 18.44827586, 18.96551724, 19.48275862, 20.        ])
+redshifts = torch.tensor(redshift_values / 10, dtype=torch.float32).to(device)  # Normalize if needed
 
 # Split dataset into train and validation
 train_ratio = 0.8
@@ -56,14 +66,15 @@ train_loader = DataLoader(train_subset, batch_size=batch_size, shuffle=True)
 val_loader = DataLoader(val_subset, batch_size=batch_size, shuffle=False)
 
 # Initialize CNN model and Flow model
+input_size = (30, 10, 10)  # Updated input size
 cnn_model = CNN().to(device)
 
 model_params = {
     'flow': {
-        'n_dim': 3,   # Inferring 3 xH values
-        'n_blocks': 8,
-        'n_nodes': 512,
-        'cond_dims': 13,  # CNN output size (10) + 3 redshifts = 13
+        'n_dim': 30,  # Inferring 30 xH values (adjust if needed)
+        'n_blocks': 6,
+        'n_nodes': 256,
+        'cond_dims': 60,  # CNN output size (10) 
         'load': False,
         'model_location': 'trained_model.pth',
         'dropout': 0.0,
@@ -73,9 +84,11 @@ flow_model = ConditionalInvertibleBlock(model_params)
 flow_model.flow.to(device)
 
 # Set up optimizer
-# We'll use separate optimizers for CNN and Flow for finer control, if desired
-cnn_optimizer = optim.AdamW(cnn_model.parameters(), lr=lr, weight_decay=1e-5)
-flow_optimizer = optim.AdamW(flow_model.flow.parameters(), lr=lr, weight_decay=1e-5)
+optimizer = optim.AdamW(
+    list(cnn_model.parameters()) + list(flow_model.flow.parameters()),
+    lr=lr,
+    weight_decay=1e-5  # Optional weight decay for regularization
+)
 
 # Define flow loss function
 def flow_loss(flow, y, cond, n_dim):
@@ -86,45 +99,57 @@ def flow_loss(flow, y, cond, n_dim):
 
 def train_and_validate(cnn_model, flow_model, train_loader, val_loader, num_epochs):
     logging.info("Starting CNN+Flow training...")
-    best_val_loss = float('inf')
-    patience = 20
-    epochs_without_improvement = 0
-
-    # Combine parameters for LR scheduler if desired
-    # Here, apply scheduler on flow_optimizer (can apply on combined if needed)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(flow_optimizer, mode='min', factor=0.5, patience=10)
+    cnn_model.train()
+    flow_model.flow.train()
 
     train_losses = []
     val_losses = []
+
+    best_val_loss = float('inf')  # Initialize best validation loss to infinity
+    patience = 20
+    epochs_without_improvement = 0
+
+    # Initialize optimizers and schedulers
+    cnn_optimizer = optim.AdamW(cnn_model.parameters(), lr=lr, weight_decay=1e-5)
+    flow_optimizer = optim.AdamW(flow_model.flow.parameters(), lr=lr, weight_decay=1e-5)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer=flow_optimizer, mode='min', factor=0.5, patience=10
+    )
 
     for epoch in range(num_epochs):
         epoch_train_loss = 0.0
         epoch_val_loss = 0.0
 
+        # Training
         cnn_model.train()
         flow_model.flow.train()
         for ps_batch, target_batch in train_loader:
             ps_batch, target_batch = ps_batch.to(device), target_batch.to(device)
+            
             ps_batch = ps_batch.unsqueeze(1) # add dimension for 3D CNN
-            # Move redshift_batch to device
-            redshift_batch = redshifts.repeat(ps_batch.size(0), 1).to(device)
+        
 
             cnn_optimizer.zero_grad()
             flow_optimizer.zero_grad()
 
+            redshift_batch = redshifts.repeat(ps_batch.size(0), 1)  # shape: [batch_size, redshift_dim]
+            
             # Forward through CNN
             cnn_output = cnn_model(ps_batch, redshift_batch)
+            
+            # Concatenate redshift values with CNN output
+            condition = torch.cat([cnn_output, redshift_batch], dim=1)  # shape: [batch_size, cond_dims]
 
-            # Concatenate CNN output (10) with redshift (3) -> (batch_size,13)
-            condition = torch.cat([cnn_output, redshift_batch], dim=1)
-
-            # Forward through Flow
-            loss = flow_loss(flow=flow_model.flow, y=target_batch, cond=condition, n_dim=model_params['flow']['n_dim'])
+            # Forward through Flow using CNN output as condition
+            loss = flow_loss(
+                flow=flow_model.flow,
+                y=target_batch,
+                cond=condition,
+                n_dim=model_params['flow']['n_dim']
+            )
             loss.backward()
-
             torch.nn.utils.clip_grad_norm_(cnn_model.parameters(), max_norm=1.0)
             torch.nn.utils.clip_grad_norm_(flow_model.flow.parameters(), max_norm=1.0)
-
             cnn_optimizer.step()
             flow_optimizer.step()
 
@@ -139,45 +164,57 @@ def train_and_validate(cnn_model, flow_model, train_loader, val_loader, num_epoc
         with torch.no_grad():
             for ps_batch, target_batch in val_loader:
                 ps_batch, target_batch = ps_batch.to(device), target_batch.to(device)
+
                 ps_batch = ps_batch.unsqueeze(1) # add dimension for 3D CNN
-                redshift_batch = redshifts.repeat(ps_batch.size(0), 1).to(device)
 
+                redshift_batch = redshifts.repeat(ps_batch.size(0), 1)  # shape: [batch_size, redshift_dim]
+            
+                # Forward through CNN
                 cnn_output = cnn_model(ps_batch, redshift_batch)
-                condition = torch.cat([cnn_output, redshift_batch], dim=1)
+                
+                # Concatenate redshift values with CNN output
+                condition = torch.cat([cnn_output, redshift_batch], dim=1)  # shape: [batch_size, cond_dims]
 
-                val_loss = flow_loss(flow=flow_model.flow, y=target_batch, cond=condition, n_dim=model_params['flow']['n_dim'])
+                # Forward through Flow
+                val_loss = flow_loss(
+                    flow=flow_model.flow,
+                    y=target_batch,
+                    cond=condition,
+                    n_dim=model_params['flow']['n_dim']
+                )
                 epoch_val_loss += val_loss.item()
 
         avg_val_loss = epoch_val_loss / len(val_loader)
         val_losses.append(avg_val_loss)
 
-        logging.info(f"Epoch [{epoch+1}/{num_epochs}], Training Loss: {avg_train_loss:.6f}, Validation Loss: {avg_val_loss:.6f}")
+        logging.info(
+            f"Epoch [{epoch+1}/{num_epochs}], Training Loss: {avg_train_loss:.6f}, Validation Loss: {avg_val_loss:.6f}"
+        )
 
-        # Adjust learning rate based on validation loss
+        # Learning rate scheduling
         scheduler.step(avg_val_loss)
 
-        # Early Stopping and Best Model Saving
+        # Early stopping
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
             epochs_without_improvement = 0
-            # Save best models
+            # Save best model
             torch.save(cnn_model.state_dict(), os.path.join(output_dir, 'best_cnn_model.pth'))
             torch.save(flow_model.flow.state_dict(), os.path.join(output_dir, 'best_flow_model.pth'))
-            logging.info(f"New best model saved at epoch {epoch+1} with val loss {avg_val_loss:.6f}")
+            logging.info(f"Saved new best model at epoch {epoch+1} with validation loss {avg_val_loss:.6f}")
         else:
             epochs_without_improvement += 1
             if epochs_without_improvement >= patience:
                 logging.info("Early stopping triggered.")
                 break
 
-    # Load best models before returning
-    cnn_model.load_state_dict(torch.load(os.path.join(output_dir, 'best_cnn_model.pth')))
-    flow_model.flow.load_state_dict(torch.load(os.path.join(output_dir, 'best_flow_model.pth')))
-
     return train_losses, val_losses
 
-# Train the model
-train_losses, val_losses = train_and_validate(cnn_model, flow_model, train_loader, val_loader, num_epochs)
+
+# Train and save both models
+train_losses, val_losses = train_and_validate(
+    cnn_model, flow_model, train_loader, val_loader, num_epochs
+)
 
 torch.save(cnn_model.state_dict(), os.path.join(output_dir, 'cnn_model.pth'))
 torch.save(flow_model.flow.state_dict(), os.path.join(output_dir, 'flow_model.pth'))
@@ -196,4 +233,3 @@ plt.title('CNN+Flow Training and Validation Loss')
 plt.legend()
 plt.grid(True)
 plt.savefig(os.path.join(output_dir, 'cnn_flow_training_validation_loss.pdf'))
-plt.close()

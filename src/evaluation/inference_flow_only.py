@@ -139,7 +139,7 @@ class InferenceModel:
 
 
 # Define the model directory and paths
-model_dir = '/remote/gpu01a/pietschke/EoRFlow/output/flow_only'
+model_dir = '/remote/gpu01a/pietschke/EoRFlow/output/flow_redshift_8_blocks'
 
 # Parameters dictionary setup
 params = {
@@ -158,7 +158,7 @@ params = {
 model_params = {
     'flow': {
         'n_dim': 3,
-        'n_blocks': 6,
+        'n_blocks': 8, #6
         'n_nodes': 256,
         'cond_dims': 303,  # Adjust based on the flattened 2DPS input size
         'dropout': 0.0,
@@ -181,3 +181,5 @@ inference_model = InferenceModel(
 
 # Run inference
 inference_model.main()
+
+
