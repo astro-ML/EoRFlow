@@ -1,7 +1,7 @@
 import os
 
 # Directory containing your noisy data files
-directory = '/remote/gpu01a/pietschke/EoRFlow/data/2DPS_data/global_history/test_z5_20_10x10'
+directory = '/remote/gpu01a/pietschke/EoRFlow/data/2DPS_data/global_history/train_z5_20_10x10'
 
 # Change to the directory
 os.chdir(directory)

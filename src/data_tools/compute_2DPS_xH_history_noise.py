@@ -58,18 +58,17 @@ def process_file(file_info):
     # Load image data
     data_image = np.load(image_file)
     image = data_image['image']
-    #tau = data_image['tau']
-
+    params = data_image['label']
     # Load xH data
     data_xh = np.load(xh_file)
-    #gxH = data_xh['gxH']  # For Benedikt's data
-    gxH = data_xh['node_gxH']  # Uncomment if using Lara's data
-    gxH_redshifts = data_xh['node_redshifts']  # Uncomment if using Lara's data
+    
+    gxH = data_xh['gxH']  # Uncomment if using Lara's data
+    gxH_redshifts = data_xh['gxH_redshifts']  # Uncomment if using Lara's data
     #gxH_redshifts = np.load('./redshifts5.npy')  # For Benedikt's data
 
     # Compute lightcone redshifts
     #lc_redshifts = compute_redshifts(image_file)  # For Benedikt's data
-    lc_redshifts = data_image['image_redshifts']  # Uncomment if using Lara's data
+    lc_redshifts = data_image['lc_redshifts']  # Uncomment if using Lara's data
 
     # Compute xH values for specific redshifts
     xH_values = get_xH_values(gxH_redshifts, gxH, ps_redshifts)
@@ -95,7 +94,7 @@ def process_file(file_info):
 
     # Save the power spectra and labels
     output_file = os.path.join(output_directory, f'{os.path.basename(image_file).replace(".npz", "")}.npz')
-    np.savez(output_file, image=power_spectra, label=label, redshifts=label_redshifts, gxH=gxH)
+    np.savez(output_file, image=power_spectra, label=label, redshifts=label_redshifts, gxH=gxH, params=params)
     print(f"Processed {image_file} with power spectra shape: {power_spectra.shape}")
     print(f"Processed {image_file} with redshifts: {label_redshifts}")
 
@@ -103,10 +102,10 @@ def main():
     # Directories containing the .npz files
     #image_directory = '/remote/gpu01a/heneka/21cmlightcones/opt_simulations'  # Benedikt's image data
     #xh_directory = '/remote/gpu01a/heneka/21cmlightcones/pure_simulations'    # Benedikt's xH data
-    noise_data = '/remote/gpu01a/pietschke/lightcones/mock_astro' # Laras data
+    noise_data = '/remote/gpu01a/pietschke/lightcones/mock_tom' # Laras data
     image_directory =  noise_data
     xh_directory = noise_data
-    output_directory = '/remote/gpu01a/pietschke/EoRFlow/data/2DPS_data/global_history/train_z5_20_10x10_noise_astro'
+    output_directory = '/remote/gpu01a/pietschke/EoRFlow/data/2DPS_data/global_history/train_z5_20_10x10_noise_tom'
     os.makedirs(output_directory, exist_ok=True)
 
     # List all .npz files in the image directory

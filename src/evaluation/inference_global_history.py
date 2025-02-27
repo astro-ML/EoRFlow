@@ -10,14 +10,16 @@ from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 import numpy as np
 import logging
-from cnn import CNN3D_film as CNN  # Assuming you have the modified CNN saved
+from cnn import CNN3D_15 as CNN 
 from flow import ConditionalInvertibleBlock
 from data_loader import PowerSpectrumDataset_global as PowerSpectrumDataset
 from data_loader import SortedPowerSpectrumDataset
 from matplotlib.backends.backend_pdf import PdfPages
 from typing import Callable, Tuple
 import seaborn as sns
-from scipy.stats import binom  # Import binomial distribution for rank statistics
+from getdist import plots, MCSamples
+from scipy.stats import binom  
+from tarp import get_tarp_coverage
 
 class InferenceModel:
     """
@@ -32,7 +34,7 @@ class InferenceModel:
 
         # Initialize dataset and data loader
         n_labels = params['n_labels']  # Number of xH values
-        unsorted_data = PowerSpectrumDataset(data_dirs, exclude_unfinished_reionization=True, exclude_early_reionization=True)
+        unsorted_data = PowerSpectrumDataset(data_dirs, exclude_unfinished_reionization=False, exclude_early_reionization=False)
         self.dataset = SortedPowerSpectrumDataset(unsorted_data)
         #self.dataset = unsorted_data
         self.data_loader = DataLoader(self.dataset, batch_size=1, shuffle=False)
@@ -63,14 +65,14 @@ class InferenceModel:
 
             # Redshift values (adjust based on your data)
         
-            redshifts = torch.tensor(self.redshifts / 10, dtype=torch.float32).to(self.device)
+            #redshifts = torch.tensor(self.redshifts / 10, dtype=torch.float32).to(self.device)
 
-            for i, (ps_data, true_label) in enumerate(self.data_loader):
-                ps_data, true_label = ps_data.to(self.device), true_label.to(self.device)
+            for i, (ps_data, true_label, redshift_batch) in enumerate(self.data_loader):
+                ps_data, true_label, redshift_batch = ps_data.to(self.device), true_label.to(self.device), redshift_batch.to(self.device)
 
                 ps_data = ps_data.unsqueeze(1)
 
-                redshift_batch = redshifts.repeat(ps_data.size(0), 1)  # shape: [batch_size, 30]
+                #redshift_batch = redshifts.repeat(ps_data.size(0), 1)  # shape: [batch_size, 30]
             
                 # Forward through CNN
                 cnn_output = self.cnn_model(ps_data, redshift_batch)
@@ -106,6 +108,7 @@ class InferenceModel:
             z = torch.randn((sample_size, self.n_labels)).to(self.device)
             condition = torch.Tensor(self.cnn_pred[i]).unsqueeze(0).repeat(sample_size, 1).to(self.device)
             samples, _ = self.flow_model(z, c=[condition], rev=True)
+            #samples = torch.clamp(samples,0,1)
             samples = samples.detach().cpu().numpy()
 
             # Compute statistics for each parameter
@@ -333,39 +336,103 @@ class InferenceModel:
         plt.close()
         logging.info('Histogram of all sampled xH values saved.')
 
+    def plot_corner_for_redshifts(self, index: int, redshifts_of_interest: list, sample_size: int = 1000):
+        """
+        Generate a corner plot for a subset of parameters corresponding to specific redshifts.
+        
+        Args:
+            index (int): The index of the test sample in self.dataset for which we want to plot.
+            redshifts_of_interest (list): The redshift values for which we want to plot the xH parameters.
+            sample_size (int): Number of samples to draw from the flow.
+        """
+        # Find the parameter indices corresponding to the chosen redshifts
+        param_indices = []
+        for z in redshifts_of_interest:
+            # Find the closest redshift index
+            z_idx = np.argmin(np.abs(self.redshifts - z))
+            param_indices.append(z_idx)
+        
+        # Ensure statistics have been computed or get cnn_pred and label
+        self.cnn_pred, self.label = self.find_cnn_output()
+        
+        # Get the condition vector for the chosen sample
+        condition_vec = torch.tensor(self.cnn_pred[index], dtype=torch.float32).unsqueeze(0).to(self.device)
+        
+        # Sample from the flow
+        z = torch.randn((sample_size, self.n_labels)).to(self.device)
+        samples, _ = self.flow_model(z, c=[condition_vec.repeat(sample_size, 1)], rev=True)
+        #samples = torch.clamp(samples,0,1)
+        samples = samples.detach().cpu().numpy()  # shape (sample_size, n_labels)
+        
+        
+        # Subset the samples to the chosen parameters
+        subset_samples = samples[:, param_indices]
+        
+        # Parameter names and labels for these redshifts
+        param_names = [f"xH(z={int(r)})" for r in redshifts_of_interest]
+        param_labels = [f"xH(z={r})" for r in redshifts_of_interest]
+        
+        # Create MCSamples object
+        mc_samples = MCSamples(samples=subset_samples, names=param_names, labels=param_labels)
+        
+        # Create corner plot
+        g = plots.get_subplot_plotter()
+        g.triangle_plot([mc_samples], filled=True)
+        
+        # Add true values as vertical/horizontal lines if desired
+        true_values = self.label[index]
+        # For each parameter, draw a line at the true value
+        for i, z_idx in enumerate(param_indices):
+            # Diagonal lines
+            g.subplots[i, i].axvline(true_values[z_idx], color='red', linestyle='--')
+        
+        # Add red dot for true values in 2D contours
+        for i in range(len(param_indices)-1):
+            for j in range(i+1, len(param_indices)):
+                ax = g.subplots[j, i]
+                ax.plot(true_values[param_indices[i]], true_values[param_indices[j]], 'ro', markersize=6)
+        
+        # Save the plot
+        plot_path = os.path.join(self.output_dir, f'corner_plot_sample_{index+1}_z{redshifts_of_interest}.pdf')
+        plt.savefig(plot_path)
+        plt.close()
+        logging.info(f"Corner plot saved for sample {index + 1} and redshifts {redshifts_of_interest}.")
+
 
     def main(self) -> None:
         """Main function to run inference and create plots."""
         self.calc_statistics(output_name='inference_statistics_xH.npz')
-        indices = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25]
+        indices = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
         self.plot_calibration(selected_indices=indices)
-        for i in range(40):  
+        for i in range(10):  
             self.plot_reionization_history(index=i)
         self.plot_error_vs_redshift()
         self.plot_correlation_heatmap()
         self.plot_rank_statistic()  
         self.plot_sampled_values_histogram()
         self.plot_coverage()
+        for i in range(10):
+            self.plot_corner_for_redshifts(index=i, redshifts_of_interest=[6,8,10,12], sample_size=1000)
         logging.info("Inference and plotting complete.")
 
 
 # Define the model directory and paths
-model_dir = '/remote/gpu01a/pietschke/EoRFlow/output/full_EoR_noise_talk'
+model_dir = '/remote/gpu01a/pietschke/EoRFlow/output/full_EoR/full_EoR_pure_z12_weights_dim'
 
 redshift_values = np.array([ 5.        ,  5.51724138,  6.03448276,  6.55172414,  7.06896552,
         7.5862069 ,  8.10344828,  8.62068966,  9.13793103,  9.65517241,
-       10.17241379, 10.68965517, 11.20689655, 11.72413793, 12.24137931,
-       12.75862069, 13.27586207, 13.79310345, 14.31034483, 14.82758621,
-       15.34482759, 15.86206897, 16.37931034, 16.89655172, 17.4137931 ,
-       17.93103448, 18.44827586, 18.96551724, 19.48275862, 20.        ])
+       10.17241379, 10.68965517, 11.20689655, 11.72413793, 12.24137931])
+       #12.75862069, 13.27586207, 13.79310345, 14.31034483, 14.82758621,
+       #15.34482759, 15.86206897, 16.37931034, 16.89655172, 17.4137931 ,
+       #17.93103448, 18.44827586, 18.96551724, 19.48275862, 20.        ])
 
 # Parameters dictionary setup
 params = {
-    'n_labels': 30,         # Number of xH values
+    'n_labels': 15,         # Number of xH values
     'redshifts': redshift_values,     # Number of redshift values
-    'cond_dims': 40,        # CNN output size + redshift_dim
+    'cond_dims': 15+10,        # CNN output size + redshift_dim
     'plot': {
-        'plot_dir': os.path.join(model_dir, 'plots_pure'),
+        'plot_dir': os.path.join(model_dir, 'plots'),
     }
 }
 
@@ -383,6 +450,7 @@ model_params = {
         'dropout': 0.0,
         'load': False,
         'model_location': 'trained_model.pth',
+        'sigmoid': False
     }
 }
 
@@ -395,6 +463,9 @@ inference_model = InferenceModel(
     params=params,
     cnn_model=cnn_model,
     flow_model=flow_model,
+    #data_dirs = ['/remote/gpu01a/pietschke/EoRFlow/data/2DPS_data/global_history/test_z5_20_10x10',
+    #'/remote/gpu01a/pietschke/EoRFlow/data/2DPS_data/global_history/test_z5_20_10x10_noise', 
+    #'/remote/gpu01a/pietschke/EoRFlow/data/2DPS_data/global_history/test_z5_20_10x10_noise_astro'],
     data_dirs=['/remote/gpu01a/pietschke/EoRFlow/data/2DPS_data/global_history/test_z5_20_10x10'],
     #data_dirs=['/remote/gpu01a/pietschke/EoRFlow/data/2DPS_data/global_history/test_z5_20_10x10_noise',
     #'/remote/gpu01a/pietschke/EoRFlow/data/2DPS_data/global_history/test_z5_20_10x10_noise_astro'],

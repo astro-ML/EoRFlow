@@ -66,19 +66,20 @@ def check_and_recompute_ps(ps_result, slice_data, redshifts, box_length, box_sid
 
 # Directory containing the .npz files
 #directory = '/remote/gpu01a/heneka/21cmlightcones/pure_simulations' # Benedikt
-directory = '/remote/gpu01a/heneka/21cmlightcones/pure_simulations_astro' # Lara
+#directory = '/remote/gpu01a/heneka/21cmlightcones/pure_simulations_astro' # Lara
+directory = '/remote/gpu01a/pietschke/lightcones/mock_astro' # Lara
 
 # Directory to save the output .npz files
-output_directory = '/remote/gpu01a/pietschke/SKA_flow/2D_data/train_10x10_2'
+output_directory = '/remote/gpu01a/pietschke/EoRFlow/data/2DPS_data/train_10x10_noise'
 os.makedirs(output_directory, exist_ok=True)
 
 # List all .npz files in the directory
 npz_files = [os.path.join(directory, f) for f in os.listdir(directory) if f.endswith('.npz')]
 
-num_files = 5027
+#num_files = 10
 # Select only the first num_files files [:num_files] - training
 # Skip the first num_files files [num_files:] - testing
-npz_files = npz_files[:num_files]
+#npz_files = npz_files[:num_files]
 
 # read in node redshifts for gxH
 #gxH_redshifts = np.load('./redshifts5.npy') #Benedikt
@@ -89,7 +90,7 @@ for file in npz_files:
     # Load the .npz file
     data = np.load(file)
     image = data['image']
-    tau = data['tau']
+    #tau = data['tau']
     #gxH = data['gxH'] # Benedikt
     gxH = data['node_gxH'] # Lara
     gxH_redshifts = data['node_redshifts'] # Lara
@@ -124,7 +125,7 @@ for file in npz_files:
     # Save the power spectra in a .npz file in the output directory
     #output_file = os.path.join(output_directory, os.path.basename(file).replace('.npz', '.npz'))
     output_file = os.path.join(output_directory, f'run_astro_{file_counter}.npz')
-    np.savez(output_file, image=power_spectra, label=label, tau=tau, gxH=gxH)
+    np.savez(output_file, image=power_spectra, label=label, gxH=gxH)
 
     print(f"Power spectra for {file}: {power_spectra.shape}")
 

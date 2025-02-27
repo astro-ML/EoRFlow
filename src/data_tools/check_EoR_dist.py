@@ -6,7 +6,7 @@ import logging
 
 # Import the data loader class
 from torch.utils.data import Dataset
-from data_loader import PowerSpectrumDataset_global as PowerSpectrumDataset
+from data_loader import PowerSpectrumDataset_global_sample as PowerSpectrumDataset
 
 
 # Functions to compute reionization metrics
@@ -79,21 +79,26 @@ def count_unfinished_reionization_at_z5(redshift_values, xH_values, xH_threshold
     print(f"Number of simulations with xH ≤ {xH_threshold}: {total_samples - num_unfinished}/{total_samples} ({100 - percentage_unfinished:.2f}%)")
 
 
+
+"""
 def main():
     # Define data directories
-    data_dirs = ['/remote/gpu01a/pietschke/EoRFlow/data/2DPS_data/global_history/train_z5_20_10x10']  # Replace with your actual data directory
+    #data_dirs=['/remote/gpu01a/pietschke/EoRFlow/data/2DPS_data/global_history/test_z5_20_10x10']
+    data_dirs = [
+    '/remote/gpu01a/pietschke/EoRFlow/data/2DPS_data/global_history/train_z5_20_10x10', 
+    '/remote/gpu01a/pietschke/EoRFlow/data/2DPS_data/global_history/toms_data_pure']
     #data_dirs = [
-    #'/remote/gpu01a/pietschke/EoRFlow/data/2DPS_data/global_history/test_z5_20_10x10_noise',
-    #'/remote/gpu01a/pietschke/EoRFlow/data/2DPS_data/global_history/test_z5_20_10x10_noise_astro']
+    #'/remote/gpu01a/pietschke/EoRFlow/data/2DPS_data/global_history/train_z5_20_10x10_noise',
+    #'/remote/gpu01a/pietschke/EoRFlow/data/2DPS_data/global_history/train_z5_20_10x10_noise_astro']
 
     # Initialize the dataset
-    dataset = PowerSpectrumDataset(data_dirs, exclude_unfinished_reionization=True, exclude_early_reionization=True)
+    dataset = PowerSpectrumDataset(data_dirs, exclude_unfinished_reionization=False, exclude_early_reionization=False, undersample_xH=True)
 
     # Since redshift values are assumed to be the same for all samples, retrieve them from the first file
     first_file = dataset.files[0]
     data = np.load(first_file)
     redshift_values = data['redshifts']  # (30,)
-
+    print(redshift_values.shape)
     # Ensure redshift_values are in ascending order
     if redshift_values[0] > redshift_values[-1]:
         redshift_values = redshift_values[::-1]
@@ -131,42 +136,13 @@ def main():
 
     
     # Now, compute the reionization metrics
-    reionization_end_redshifts = compute_reionization_end_redshift(redshift_values, xH_values)
-    reionization_mid_redshifts = compute_reionization_midpoint_redshift(redshift_values, xH_values)
-    reionization_durations = compute_reionization_duration(redshift_values, xH_values)
+    #reionization_end_redshifts = compute_reionization_end_redshift(redshift_values, xH_values)
+    #reionization_mid_redshifts = compute_reionization_midpoint_redshift(redshift_values, xH_values)
+    #reionization_durations = compute_reionization_duration(redshift_values, xH_values)
 
     # Plot histograms
 
-    # Histogram of Reionization End Redshifts
-    plt.figure(figsize=(8, 6))
-    plt.hist(reionization_end_redshifts, bins=20, edgecolor='black')
-    plt.xlabel('Reionization End Redshift (z)')
-    plt.ylabel('Number of Samples')
-    plt.title('Distribution of Reionization End Redshifts')
-    plt.grid(True)
-    plt.savefig('reionization_end_redshift_histogram.png')
-    plt.show()
-
-    # Histogram of Reionization Midpoint Redshifts
-    plt.figure(figsize=(8, 6))
-    plt.hist(reionization_mid_redshifts, bins=20, edgecolor='black')
-    plt.xlabel('Reionization Midpoint Redshift (z)')
-    plt.ylabel('Number of Samples')
-    plt.title('Distribution of Reionization Midpoint Redshifts')
-    plt.grid(True)
-    plt.savefig('reionization_midpoint_redshift_histogram.png')
-    plt.show()
-
-    # Histogram of Reionization Durations
-    valid_durations = reionization_durations[~np.isnan(reionization_durations)]
-    plt.figure(figsize=(8, 6))
-    plt.hist(valid_durations, bins=20, edgecolor='black')
-    plt.xlabel('Reionization Duration (Δz)')
-    plt.ylabel('Number of Samples')
-    plt.title('Distribution of Reionization Durations')
-    plt.grid(True)
-    plt.savefig('reionization_duration_histogram.png')
-    plt.show()
+    
 
     # ----------------------------------------------------
     # Plot of All Reionization Histories (xH as a function of z)
@@ -190,14 +166,76 @@ def main():
     plt.title('Reionization Histories of Training data', fontsize=16)
     # Do not invert x-axis; redshift increases from left to right
     plt.grid(True)
-    plt.savefig('reionization_histories.png')
+    plt.savefig('reionization_histories.pdf')
     plt.show()
     
-    count_unfinished_reionization_at_z5(redshift_values, xH_values, xH_threshold=0.1, z_target=5.0)
-
-
 if __name__ == '__main__':
-    main()
+    main()    
+"""
+
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+
+def compute_mean_xH_labels(folders):
+    """
+    Compute the mean xH label for each sample in the given folders.
+
+    Args:
+        folders (list): List of directory paths containing .npz files.
+
+    Returns:
+        list: Mean xH values for all samples.
+    """
+    mean_xH_values = []
+
+    for folder in folders:
+        npz_files = [os.path.join(folder, f) for f in os.listdir(folder) if f.endswith('.npz')]
+        for file in npz_files:
+            try:
+                data = np.load(file)
+                if 'label' in data:
+                    mean_xH = data['label']  # Compute mean of xH values
+                    mean_xH_values.append(mean_xH.flatten())
+            except Exception as e:
+                print(f"Error loading {file}: {e}")
+
+    return mean_xH_values
+
+def plot_xH_histogram(folders, bins=50):
+    """
+    Load mean xH values from folders and plot a histogram.
+
+    Args:
+        folders (list): List of directories containing .npz files.
+        bins (int): Number of bins in the histogram.
+    """
+    mean_xH_values = compute_mean_xH_labels(folders)
+
+    if not mean_xH_values:
+        print("No valid xH values found to plot.")
+        return
+
+    plt.figure(figsize=(8, 5))
+    plt.hist(mean_xH_values, bins=bins, edgecolor='black', alpha=0.75)
+    plt.xlabel("Mean xH Label")
+    plt.ylabel("Frequency")
+    plt.title("Histogram of Mean xH Labels")
+    plt.grid(True)
+    plt.savefig('mean_xH_sample.png')
+
+# Example usage:
+folders = ['/remote/gpu01a/pietschke/EoRFlow/data/2DPS_data/global_history/train_z5_20_10x10', 
+    '/remote/gpu01a/pietschke/EoRFlow/data/2DPS_data/global_history/toms_data_pure']
+plot_xH_histogram(folders)
+
+
+
+
+
+
+
+
 
 
 

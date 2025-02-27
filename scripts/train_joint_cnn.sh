@@ -1,17 +1,27 @@
 #!/bin/bash
-#PBS -l walltime=5:00:00
-#PBS -l nodes=1:ppn=1:gpus=1:a30
-#PBS -q a30
-#PBS -N train_joint_cnn
+#SBATCH --job-name=train_SKA       # Job name
+#SBATCH --time=3:00:00                             # Wall time
+#SBATCH --partition=a30                            # Partition (equivalent to PBS -q)
+#SBATCH --gres=gpu:1                               # Request 1 GPU
+#SBATCH --ntasks=1                                 # Number of tasks (equivalent to ppn)
+#SBATCH --cpus-per-task=1                          # Number of CPUs per task
+#SBATCH --output=train_SKA.o%A    # Standard output
+#SBATCH --error=train_SKA.e%A     # Standard error
 
+# Load CUDA module
 module load cuda/11.4
+
+# Activate the virtual environment
 source /remote/gpu01a/pietschke/EoRFlow/venv_flow/bin/activate
 
-mydev=`cat $PBS_GPUFILE | sed s/.*-gpu// `
+# Set CUDA device
+mydev=`echo $CUDA_VISIBLE_DEVICES`
 export CUDA_VISIBLE_DEVICES=$mydev
 
+# Navigate to the training directory
 cd /remote/gpu01a/pietschke/EoRFlow/src/training
 
+# Run the training script
 nice -19 python train_joint_cnn.py
 
 echo "job done"

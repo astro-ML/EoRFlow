@@ -1,17 +1,30 @@
 #!/bin/bash
-#PBS -l walltime=01:00:00
-#PBS -l nodes=1:ppn=1:gpus=1:a30
-#PBS -q a30
-#PBS -N eval_flow_only
+#SBATCH --job-name=eval_flow       # Job name
+#SBATCH --time=1:00:00                             # Wall time
+#SBATCH --partition=gshort                           # Partition (equivalent to PBS -q)
+#SBATCH --gres=gpu:1                               # Request 1 GPU
+#SBATCH --ntasks=1                                 # Number of tasks (equivalent to ppn)
+#SBATCH --cpus-per-task=1                          # Number of CPUs per task
+#SBATCH --mem-per-cpu=62G  # CPU memory (62G is fulfilled on all queues)
+#SBATCH --output=eval_flow.o%A    # Standard output
+#SBATCH --error=eval_flow.e%A     # Standard error
 
+# Load CUDA module
 module load cuda/11.4
+
+# Activate the virtual environment
 source /remote/gpu01a/pietschke/EoRFlow/venv_flow/bin/activate
 
-mydev=`cat $PBS_GPUFILE | sed s/.*-gpu// `
+# Set CUDA device
+mydev=`echo $CUDA_VISIBLE_DEVICES`
 export CUDA_VISIBLE_DEVICES=$mydev
 
+# Navigate to the training directory
 cd /remote/gpu01a/pietschke/EoRFlow/src/evaluation
 
+#nice -19 python plot_latent.py
+#nice -19 python plot_jacobian.py
 nice -19 python inference_flow_only.py
+#nice -19 python inference_flow_1param.py
 
 echo "job done"

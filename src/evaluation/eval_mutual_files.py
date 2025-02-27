@@ -17,6 +17,18 @@ from flow import ConditionalInvertibleBlock  # Replace with your actual flow mod
 
 from torch.utils.data import Dataset, DataLoader
 
+
+param_names = [
+    r"$m_{\mathrm{WDM}}$",
+    r"$\Omega_{\mathrm{M}}$",
+    r"$E_0$",
+    r"$L_{\mathrm{X}}$",
+    r"$T_{\mathrm{vir}}$",
+    r"$\zeta$"
+]
+
+
+
 # Define the modified dataloader
 class PowerSpectrumDatasetFromFiles(Dataset):
     def __init__(self, files, redshift_values=None):
@@ -153,8 +165,8 @@ class InferenceModel:
 
             # Compute statistics for each parameter
             mean[i] = np.mean(samples, axis=0)
-            lower[i] = np.percentile(samples, 16, axis=0)
-            upper[i] = np.percentile(samples, 84, axis=0)
+            lower[i] = np.percentile(samples, 2.5, axis=0)
+            upper[i] = np.percentile(samples, 97.5, axis=0) # compute 2 sigma bars
 
             # Calculate rank statistics
             for j in range(num_params):
@@ -385,20 +397,41 @@ def main():
     os.makedirs(output_dir, exist_ok=True)
 
     for index in range(len(filtered_common_files_no_noise)):
+        # Load noise file for this sample
+        noise_file = filtered_common_files_with_noise[index]
+        noise_data = np.load(noise_file)
+        if 'params' in noise_data:
+            params_array = noise_data['params']
+        else:
+            params_array = None
+        noise_data.close()
+
+        # Format the params with names
+        if params_array is not None:
+            params_str = ", ".join([f"{name}={val:.2f}" for name, val in zip(param_names, params_array)])
+        else:
+            params_str = "No params found"
+
         plt.figure(figsize=(10, 6))
-        plt.fill_between(redshift_values, lower_with_noise[index], upper_with_noise[index], color='purple', alpha=0.3, label='68% CI With Noise')
+        plt.fill_between(redshift_values, lower_with_noise[index], upper_with_noise[index], color='purple', alpha=0.3, label='95% CI With Noise')
         plt.plot(redshift_values, mean_with_noise[index], color='purple', label='Inferred Mean With Noise')
-        plt.fill_between(redshift_values, lower_no_noise[index], upper_no_noise[index], color='orange', alpha=0.3, label='68% CI Without Noise')
+        plt.fill_between(redshift_values, lower_no_noise[index], upper_no_noise[index], color='orange', alpha=0.3, label='95% CI Without Noise')
         plt.plot(redshift_values, mean_no_noise[index], color='orange', label='Inferred Mean Without Noise')
         plt.plot(redshift_values, label_no_noise[index], color='black', linestyle='--', label='True xH')
-        plt.xlabel('Redshift z', fontsize=16)
-        plt.ylabel('Neutral Hydrogen Fraction xH', fontsize=16)
-        plt.tick_params(axis='both', which='major', labelsize=14)
-        plt.tick_params(axis='both', which='minor', labelsize=12)
-        plt.title(f'Reionization History Comparison for Sample {index + 1}', fontsize=16)
-        plt.legend(fontsize=14)
-        plt.grid(True)
+        plt.axhline(y=0, color='black', alpha=0.7)
+        plt.axhline(y=0.5, color='black', alpha=0.7)
+        plt.axhline(y=1, color='black', alpha=0.7)
+        plt.xlabel('Redshift z', fontsize=20)
+        plt.ylabel('Neutral Hydrogen Fraction xH', fontsize=20)
+        plt.tick_params(axis='both', which='major', labelsize=16)
+        plt.tick_params(axis='both', which='minor', labelsize=14)
+
         sample_filename = os.path.splitext(os.path.basename(filtered_common_files_no_noise[index]))[0]
+
+        # Include params with LaTeX labels in the title
+        plt.title(f'{params_str}', fontsize=20)
+
+        plt.legend(fontsize=16)
         plt.savefig(os.path.join(output_dir, f'reionization_history_comparison_{sample_filename}.pdf'))
         plt.close()
 

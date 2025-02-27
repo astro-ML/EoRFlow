@@ -2,11 +2,11 @@ import numpy as np
 import os
 import matplotlib.pyplot as plt
 import torch
-from data_loader import PowerSpectrumDataset, PowerSpectrumDataset_CNN, PowerSpectrumDataset_global
+from data_loader import PowerSpectrumDataset, PowerSpectrumDataset_SKA
 from sklearn.preprocessing import RobustScaler
 
 def load_and_normalize_data(data_paths):
-    dataset = PowerSpectrumDataset_global(data_paths)
+    dataset = PowerSpectrumDataset(data_paths)
     data_loader = torch.utils.data.DataLoader(dataset, batch_size=len(dataset), shuffle=False)
     
     # Load data
@@ -61,20 +61,21 @@ def plot_distribution(data, output_file):
 
 
 # Paths to the data
-train_data_path = '/remote/gpu01a/pietschke/EoRFlow/data/2DPS_data/global_history/train_z5_20_10x10'
-#train_data_path_2 = '/remote/gpu01a/pietschke/EoRFlow/data/2DPS_data/train_10x10_2'
-val_data_path = '/remote/gpu01a/pietschke/EoRFlow/data/2DPS_data/global_history/test_z5_20_10x10'
+train_data_path = '/remote/gpu01a/pietschke/EoRFlow/data/2DPS_data/train_10x10'
+val_data_path = '/remote/gpu01a/pietschke/EoRFlow/data/2DPS_data/train_10x10_2'
+test_data_path = '/remote/gpu01a/pietschke/EoRFlow/data/2DPS_data/test_10x10'
 
 # Load and normalize data
 train_data = load_and_normalize_data([train_data_path])
 val_data = load_and_normalize_data([val_data_path])
+test_data = load_and_normalize_data([test_data_path])
 
 # Combine train and validation data
-combined_data = np.concatenate((train_data, val_data), axis=0)
-num_below_zero = (combined_data < 0).sum()
+combined_data = np.concatenate((train_data, val_data, test_data), axis=0)
+#num_below_zero = (combined_data < 0).sum()
 
 # Plot distribution
-plot_distribution(combined_data, 'distribution_plot.pdf')
+plot_distribution(combined_data, 'distribution_plot_SKA.pdf')
 
 
 
