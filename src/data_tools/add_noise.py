@@ -84,6 +84,8 @@ class Noise:
             np.ndarray: The brightness temperature data with added noise.
         """
         logging.info('Creating mock lightcone with noise')
+
+        # just for Benedikt
         with open("/remote/gpu01a/pietschke/21cm_pie/21cm_pie/generate_data/redshifts5.npy", "rb") as data:
             box_redshifts = list(np.load(data, allow_pickle=True))
             box_redshifts.sort()
@@ -93,6 +95,8 @@ class Noise:
         flag_options = p21c.FlagOptions()
         sim_lightcone = p21c.LightCone(5.0, user_params, cosmo_params, astro_params, flag_options, 0,
                                        {"brightness_temp": brightness_temp}, 35.05)
+
+        # here plug in redshifts
         redshifts = sim_lightcone.lightcone_redshifts
         box_len = np.array([])
         y = 0

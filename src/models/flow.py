@@ -1,17 +1,15 @@
 import logging
 import sys
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-
 import FrEIA.framework as Ff
 import FrEIA.modules as Fm
 
 class ConditionalInvertibleBlock():
     """
-    A class representing a conditional invertible block.
+    Conditional Invertible Block for EoRFlow.
 
     Args:
         params (dict): A dictionary containing the parameters for the block.
@@ -38,7 +36,7 @@ class ConditionalInvertibleBlock():
         n_blocks = self.params['n_blocks']
         n_nodes = self.params['n_nodes']
         cond_dims = self.params['cond_dims']
-        self.dropout_prob = self.params.get('dropout', 0.3)  # Default dropout probability is 0.3
+        self.dropout_prob = self.params.get('dropout', 0.0)  # don't use dropout for invertible network
         self.flow = self.model(n_dim, n_blocks, n_nodes, cond_dims)
         #self.log_prob = self.log_prob(x, c)
         if self.params['load']:
@@ -65,8 +63,6 @@ class ConditionalInvertibleBlock():
         def subnet_fc(dims_in: int, dims_out: int) -> nn.Sequential:
             return nn.Sequential(nn.Linear(dims_in, n_nodes), 
                                 nn.ReLU(),
-                                nn.Dropout(self.dropout_prob),  # Add dropout here
-                                #nn.LayerNorm(n_nodes),
                                 nn.Linear(n_nodes, dims_out))
         
         flow = Ff.SequenceINN(n_dim)
@@ -74,10 +70,6 @@ class ConditionalInvertibleBlock():
         for k in range(n_blocks):
             flow.append(Fm.AllInOneBlock, cond=0, cond_shape=(cond_dims,),
                         subnet_constructor=subnet_fc, permute_soft=permute_soft)
-        # Append a Sigmoid layer
-        if self.params['sigmoid']:
-            flow.append(SigmoidModule)
-
         return flow
     
     def load_model(self, location: str) -> bool:
@@ -110,43 +102,10 @@ class ConditionalInvertibleBlock():
         z, jac = self.flow(x, c=[c], rev=False)
         
         log_prob = -0.5 * torch.sum(z **2, dim=1) + jac
-        #log_prob = -0.5 * (z**2) + jac
         
         return log_prob
 
-
-    # approximate!!
-    def log_prob_per_dim(self, x: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
-        """
-        Compute the *per-parameter* log probability of x given conditioning variables c.
-        
-        Args:
-            x (torch.Tensor): [batch_size, n_dim]
-            c (torch.Tensor): [batch_size, cond_dims]
-
-        Returns:
-            torch.Tensor: [batch_size, n_dim], the log-prob for each parameter individually.
-        """
-        # Transform x into latent space z
-        z, jac = self.flow(x, c=[c], rev=False)  # z shape: [batch_size, n_dim], jac shape: [batch_size]
-        
-        # Standard Normal log prob for each dimension (omitting constant terms)
-        # e.g. -0.5 * z^2, shape [batch_size, n_dim]
-        log_p_z = -0.5 * (z**2) 
-        
-        # Distribute the Jacobian contribution equally across n_dim
-        # jac is [batch_size], so expand to [batch_size, 1] and broadcast
-        n_dim = x.shape[1]
-        log_p_jac = (jac / n_dim).unsqueeze(1)  # shape: [batch_size, 1]
-        
-        # Per-parameter log prob
-        # You add the (jac / n_dim) term to each dimension
-        log_prob_per_dim = log_p_z + log_p_jac
-        
-        return log_prob_per_dim
-
-
-# custom invertible sigmoid to be applied in reverse pass (inference)
+# custom invertible sigmoid that could be used in the flow, we apply it in preprocessing instead
 class SigmoidModule(Fm.InvertibleModule):
     def __init__(self, dims_in, dims_c=[]):
         super().__init__(dims_in, dims_c)
