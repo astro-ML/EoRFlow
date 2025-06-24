@@ -2,7 +2,7 @@
 
 **Fast and robust inference of the Epoch of Reionization from 21cm 2D power spectra using deep learning and normalizing flows.**
 
-![EoRFlow banner](docs/eorflow_banner.png)
+![EoRFlow banner](docs/eorflow_concept.png)
 
 ## Overview
 
