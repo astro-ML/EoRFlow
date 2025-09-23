@@ -95,24 +95,7 @@ def main():
 if __name__ == "__main__":
     main()
 
-#___________________________________________________
-"""
-def compute_redshifts(file):
-    cone = np.load(file)
-    image = cone['image']
-    label = cone['label']
-    cosmo_params = p21c.CosmoParams(OMm=label[1])
-    astro_params = p21c.AstroParams(INHOMO_RECO=True)
-    user_params = p21c.UserParams(HII_DIM=140, BOX_LEN=200)
-    flag_options = p21c.FlagOptions()
-    sim_lightcone = p21c.LightCone(5., user_params, cosmo_params, astro_params, flag_options, 0, {"brightness_temp": image}, 35.05)
-    redshifts = sim_lightcone.lightcone_redshifts
-    return redshifts
-"""
-#tau = data['tau']
-#gxH = data['node_gxH'] # Lara
-#gxH_redshifts = np.load('./redshifts5.npy') #Benedikt
- #lc_redshifts = compute_redshifts(file) #Benedikt
+
   
     
    
