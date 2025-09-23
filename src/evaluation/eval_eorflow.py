@@ -10,61 +10,73 @@ plt.style.use('science')
 import numpy as np
 import logging
 from flow import ConditionalInvertibleBlock
-from data_loader import PowerSpectrumDataset
+from data_loader import PowerSpectrumDataset, EoRFlowDataset
 from matplotlib.backends.backend_pdf import PdfPages
 from getdist import plots, MCSamples
 
+# ------------------- CONFIG -------------------
+mode = 'ps2d'  # Options: 'ps2d' or 'ps1d'
+n_blocks = 10
+n_nodes = 512
+
+out_tag = f'{n_blocks}_{n_nodes}'
+model_dir = '/remote/gpu01a/pietschke/EoRFlow/output/aa4_mod_10_512'
+
+# set min and max redshift index 
+min_redshift_index = 0
+max_redshift_index = 15
+redshift_dim = max_redshift_index - min_redshift_index
+
+if mode == 'ps2d':
+    ps_dim = redshift_dim * 10 * 10
+else:
+    ps_dim = redshift_dim * 10
+cond_dims = ps_dim + redshift_dim
+
+# ------------------- SETUP -------------------
+output_plot_dir = os.path.join(model_dir, 'plots')
+os.makedirs(output_plot_dir, exist_ok=True)
+
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s - %(levelname)s - %(message)s')
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+# ------------------- Inference Model -------------------
 class InferenceModel:
-    """
-    InferenceModel class for performing inference with a trained flow model.
-
-    This class produces:
-      - Calibration scatter plots: true vs. inferred xHI values (with error bars).
-      - Corner plots: 2D posterior contours for selected test samples.
-      - Individual rank histograms: distribution of the rank of the true value among posterior samples.
-      - Log-probability coverage line plot: comparing the empirical CDF of (1 - rank) against the ideal uniform CDF.
-      - Reionization history plots: xHI as a function of redshift for selected examples.
-
-    Args:
-        params (dict): Dictionary with plotting parameters and redshift settings.
-        flow_model (nn.Module): Trained flow model. It is expected to have a .flow attribute.
-        data_dir (str or list): Path(s) to the test dataset.
-        device (str): Device to run inference on ('cpu' or 'cuda').
-        use_sigmoid (bool): Whether to apply the inverse (sigmoid) transformation to the raw flow output.
-    """
-    def __init__(self, params: dict, flow_model: torch.nn.Module, data_dir, device: str = 'cpu', use_sigmoid=False):
+    def __init__(self, params, flow_model, data_dirs, device='cpu', use_sigmoid=False):
         self.params = params.get('plot', {})
         self.flow_model = flow_model.flow.to(device)
         self.device = device
         self.use_sigmoid = use_sigmoid
 
-        # Set redshift parameters (min and max indices) and compute redshift_dim.
-        self.min_redshift_index = params.get('min_redshift_index', 0)
-        self.max_redshift_index = params.get('max_redshift_index', 15)
+        # redshift dims
+        self.min_redshift_index = params['min_redshift_index']
+        self.max_redshift_index = params['max_redshift_index']
         self.redshift_dim = self.max_redshift_index - self.min_redshift_index
 
         self.redshift_start = self.params.get('redshift_start', 5)
         self.redshift_end = self.params.get('redshift_end', 12)
 
-        # Initialize dataset and data loader.
+        # DATASET
         self.dataset = PowerSpectrumDataset(
-            data_dir,
-            max_ones_allowed=15,
-            max_zeros_allowed=15,
-            filter_reionization_timing=False,
+            data_dirs=data_dirs,
+            mode=mode,
+            logit=False,
+            add_noise=False,
+            aa4_mod_noise=True,
+            aaStar_mod_noise=False,
             min_redshift_index=self.min_redshift_index,
-            max_redshift_index=self.max_redshift_index,
-            add_noise=False
+            max_redshift_index=self.max_redshift_index
         )
         self.data_loader = DataLoader(self.dataset, batch_size=1, shuffle=False)
 
-        # Setup output directory.
-        self.output_dir = self.params.get('plot_dir', './plots')
+        # OUTPUT
+        self.output_dir = self.params.get('plot_dir', output_plot_dir)
         os.makedirs(self.output_dir, exist_ok=True)
 
-        # Placeholder for true labels (filled in get_data) and for cached samples.
         self.labels = None
-        self.all_samples = []  # This will be a list of dicts (one per test sample)
+        self.all_samples = []
 
     def get_data(self) -> np.ndarray:
         """
@@ -117,7 +129,7 @@ class InferenceModel:
 
     def calc_statistics(self, output_filename: str = 'inference_statistics_xH.npz') -> None:
         """
-        Calculate Monte Carlo statistics (mean, 16th and 84th percentiles) for each test sample.
+        Calculate statistics (mean, 16th and 84th percentiles) for each test sample.
         Uses the precomputed samples.
         Saves the results (with the true labels) to a file.
         """
@@ -126,14 +138,8 @@ class InferenceModel:
         lower = np.zeros((num_samples, self.redshift_dim))
         upper = np.zeros((num_samples, self.redshift_dim))
         par_names = [f"xHI{i+1}" for i in range(self.redshift_dim)]
-        #ranges = {f"xHI{i+1}": [0, 1] for i in range(self.redshift_dim)}
         for i, sample_dict in enumerate(self.all_samples):
             samples = sample_dict['samples']  # shape: (sample_size, redshift_dim)
-            #samples = np.clip(samples, 0, 1)
-            # Add a small jitter if the range is zero to avoid issues.
-            for j in range(self.redshift_dim):
-                if samples[:, j].max() - samples[:, j].min() <= 0:
-                    samples[:, j] += np.random.normal(0, 1e-6, samples.shape[0])
             mc_samples = MCSamples(samples=samples, names=par_names, labels=par_names,
                                     settings={"fine_bins_2D": 300, "fine_bins_1D": 300,
                                     "smooth_scale_2D": 0.1, "smooth_scale_1D": 0.1})
@@ -188,14 +194,12 @@ class InferenceModel:
         """
         Generate corner plots (using getdist) for selected test samples.
         """
-        #ranges = {f"xHI{i+1}": [0, 1] for i in range(self.redshift_dim)}
         if sample_indices is None:
             sample_indices = list(range(5))
         par_names = [f"xHI{i+1}" for i in range(self.redshift_dim)]
         for idx in sample_indices:
             sample_dict = self.all_samples[idx]
             samples = sample_dict['samples']
-            #samples = np.clip(samples, 0, 1)
             true_label = sample_dict['true_label']
             mc_samples = MCSamples(samples=samples, names=par_names, labels=par_names,
                                     settings={"fine_bins_2D": 300, "fine_bins_1D": 300,
@@ -277,76 +281,6 @@ class InferenceModel:
         grid = x_mc.get1DDensityGridData(0)
         low, up = grid.getLimits([alpha])[0:2]
         return low, up
-
-    def marginal_log_prob(self, x: np.ndarray, index: int, alpha: float = 0.05) -> float:
-        """
-        Approximate the marginal log probability for a given parameter using its credible interval.
-        
-        The method uses the assumption that, for a small credible level α, the density is roughly
-        constant over the interval. Thus, if the credible interval [low, up] satisfies
-            P(low < X < up) = α,
-        then we have approximately f(x_true) ≈ α/(up-low) and:
-            log f(x_true) ≈ log(α) - log(up - low).s
-        
-        Args:
-            x (np.ndarray): 1D array of posterior samples for one parameter.
-            index (int): The parameter index (used in the credible_interval function).
-            alpha (float): The small credible level to use for estimation.
-        
-        Returns:
-            float: The approximate marginal log probability.
-        """
-        # Get the credible interval for the chosen alpha.
-        low, up = self.credible_interval(x, alpha)
-        width = up - low
-        # Avoid division by zero.
-        if width <= 0:
-            return -np.inf
-        log_prob = np.log(alpha) - np.log(width)
-        return log_prob
-
-    def plot_marginal_log_prob_coverage(self, alpha: float = 0.05) -> None:
-        """
-        For each marginal parameter, approximate the marginal log probability using the credible interval method,
-        and plot the empirical CDF of these approximate log probabilities over the test samples.
-        
-        This function computes, for each parameter index, an approximate marginal log probability for each test sample
-        (using the provided alpha value in the credible_interval method), and then plots the empirical cumulative 
-        distribution function (CDF) of these values, comparing it with an ideal uniform behavior in the probability domain.
-        """
-        num_params = self.redshift_dim
-        # For each parameter, collect the marginal log probabilities over test samples.
-        marginal_log_probs = {f"xHI{j+1}": [] for j in range(num_params)}
-        
-        # Loop over the cached samples.
-        for sample_dict in self.all_samples:
-            # For each parameter, compute the approximate marginal log probability.
-            # sample_dict['samples'] is an array of shape (sample_size, redshift_dim)
-            # We assume the posterior sample distribution gives us the local density.
-            for j in range(num_params):
-                # Compute the marginal log probability for parameter j using the samples.
-                log_prob_j = self.marginal_log_prob(sample_dict['samples'][:, j], index=j, alpha=alpha)
-                marginal_log_probs[f"xH{j+1}"].append(log_prob_j)
-        
-        # For each parameter, sort and plot the empirical CDF.
-        for j in range(num_params):
-            param_name = f"xH{j+1}"
-            log_probs = np.array(marginal_log_probs[param_name])
-            sorted_vals = np.sort(log_probs)
-            cdf = np.linspace(0, 1, len(sorted_vals))
-    
-            plt.figure(figsize=(6, 6))
-            plt.plot(sorted_vals, cdf, 'b-', linewidth=2, label=f'Empirical CDF for {param_name}')
-            plt.xlabel(f'Approximate Marginal log Prob for {param_name}', fontsize=14)
-            plt.ylabel('Cumulative Probability', fontsize=14)
-            plt.title(f'Marginal Log Prob Coverage for {param_name}', fontsize=16)
-            plt.legend(fontsize=12)
-            plt.grid(True)
-            plot_path = os.path.join(self.output_dir, f'marginal_log_prob_coverage_{param_name}.pdf')
-            plt.savefig(plot_path)
-            plt.close()
-            logging.info(f"Marginal log probability coverage plot saved for {param_name}.")
-
         
     def plot_individual_ranks(self, bins: int = 20) -> None:
         """
@@ -430,58 +364,46 @@ class InferenceModel:
         logging.info("Inference and plotting complete.")
 
 
+# ------------------- MAIN -------------------
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO,
-                        format='%(asctime)s - %(levelname)s - %(message)s')
-
-    # Set redshift indices via parameters.
-    min_redshift_index = 0
-    max_redshift_index = 15
-    redshift_dim = max_redshift_index - min_redshift_index
-
-    ps_dim = redshift_dim * 10 * 10  # Flattened power spectra dimension.
-    total_cond_dim = ps_dim + redshift_dim
-
-    model_dir = '/remote/gpu01a/pietschke/EoRFlow/output/pure_10_512'
+    # Build params dict
     params = {
         'plot': {
-            'plot_dir': os.path.join(model_dir, 'plots')
+            'plot_dir': output_plot_dir
         },
         'min_redshift_index': min_redshift_index,
         'max_redshift_index': max_redshift_index,
         'redshift_start': 5.0,
-        'redshift_end': 15.0,
-        'dims': {
-            'n_dim': redshift_dim
-        }
+        'redshift_end': 12.0,
     }
 
     model_params = {
         'flow': {
             'n_dim': redshift_dim,
-            'n_blocks': 10,
-            'n_nodes': 512,
-            'cond_dims': total_cond_dim,
+            'n_blocks': n_blocks,
+            'n_nodes': n_nodes,
+            'cond_dims': cond_dims,
             'load': False,
             'model_location': 'best_flow_model.pth',
         }
     }
 
-    # Load the trained flow model.
+    # Load model
     flow_model = ConditionalInvertibleBlock(model_params)
-    trained_model_path = os.path.join(model_dir, 'best_flow_model.pth')
-    flow_model.flow.load_state_dict(torch.load(trained_model_path))
+    flow_model.flow.load_state_dict(
+        torch.load(os.path.join(model_dir, 'best_flow_model.pth'), map_location=device)
+    )
     flow_model.flow.eval()
 
-    #test_data_dir = ['/remote/gpu01a/pietschke/EoRFlow/data/2DPS_data/global_history/noise/test']
-    test_data_dir = ['/remote/gpu01a/pietschke/EoRFlow/data/2DPS_data/global_history/pure/test']
+    # Test data
+    test_data_dir = [f'/remote/gpu01a/pietschke/EoRFlow/data/power_spectra/pure/test']
 
-    # Create an instance of the InferenceModel.
-    inference_model = InferenceModel(params=params,
-                                     flow_model=flow_model,
-                                     data_dir=test_data_dir,
-                                     device='cuda' if torch.cuda.is_available() else 'cpu',
-                                     use_sigmoid=True)
-
-    # Run the full inference pipeline (sampling is done only once).
+    # Inference
+    inference_model = InferenceModel(
+        params=params,
+        flow_model=flow_model,
+        data_dirs=test_data_dir,
+        device=device,
+        use_sigmoid=True
+    )
     inference_model.main(sample_size=1000)
