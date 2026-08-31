@@ -62,3 +62,29 @@ This code was developed on a specific HPC system and the scripts under
 `scripts/` contain absolute paths and SLURM directives from that environment.
 They are included as working examples of the full pipeline rather than as
 portable tools; adapt the paths before use.
+
+## Publications
+
+EoRFlow was introduced in, and has been used for, the following work:
+
+- **Direct reconstruction of the reionization history from 21cm 2D power spectra**  
+  Y. Pietschke, C. Heneka, T. Schlenker, A. Ore, B. Schosser — *JCAP* (2025)  
+  The original EoRFlow inference pipeline.  
+  Code: [`paper`](../../tree/paper) · [journal](https://doi.org/10.1088/1475-7516/2025/10/039) · [arXiv](https://arxiv.org/abs/2506.19925)
+
+- **Constraining reionization morphology and source properties with 21cm galaxy cross-correlation surveys**  
+  Y. Pietschke, A. Hutter, C. Heneka — *A&A* (2025)  
+  Application to inference from 21cm-galaxy cross-power spectra.  
+  [journal](https://doi.org/10.1051/0004-6361/202659152) · [arXiv](https://arxiv.org/abs/2601.18627)
+
+- **Cross-simulator transfer with foundation model summaries: towards robust SKA-era reionization inference**  
+  Y. Pietschke, C. Heneka, A. Ore, R. Meriot — *submitted to A&A* (2026)  
+  Frozen self-supervised [SKATR](https://github.com/heidelberg-hepml/skatr) summaries transferred
+  across simulators and to SKA-AA\* noise, with a conditional flow matching inference head.  
+  Code: [`main`](../../tree/main) · [arXiv](https://arxiv.org/abs/2608.26354)
+
+- **SKA Science Data Challenge 3b**  
+  EoRFlow entry to the SDC3b inference challenge.  
+  Code: [`SKA-challenge`](../../tree/SKA-challenge) ·
+  [results](https://sdc3.skao.int/challenges/inference/results)
+
