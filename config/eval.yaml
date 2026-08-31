@@ -1,0 +1,33 @@
+# EoRFlow -- evaluation / posterior-sampling configuration template.
+#
+# Training writes a checkpoint but NOT posterior samples; sampling is this
+# separate pass, which writes samples.npz next to the model.
+#
+# The architecture and redshift settings here MUST match the training run, and
+# the normalization statistics must be the ones fitted during training.
+
+mode: ps1d
+data: loreli
+
+database_path: <path/to/21cmfast_database>
+loreli_root: <path/to/loreli_database>
+
+# --- Model to evaluate -------------------------------------------------------
+model_path: <path/to/output/.../best_flow_model.pth>
+test_indices_path: <path/to/output/.../test_indices.npy>
+output_dir: <path/to/output/...>
+
+# --- Must match training -----------------------------------------------------
+min_redshift_index: 3
+max_redshift_index: 15
+add_noise: false
+
+n_blocks: 10
+n_nodes: 512
+subnet_depth: 3
+act: relu
+
+# --- Sampling ----------------------------------------------------------------
+num_samples_per_sim: 1000
+batch_size: 1
+plot_n_panels: 6

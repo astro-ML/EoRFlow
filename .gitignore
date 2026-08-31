@@ -1,0 +1,50 @@
+# This branch tracks a deliberately LIGHT subset of the research tree: the
+# library, configuration templates, and generic tooling. The working copy on
+# our HPC system additionally holds run outputs, generated configuration sets,
+# and experiment-specific submission scripts, none of which belong in the
+# repository. The allowlists below keep `git status` meaningful there.
+
+__pycache__/
+*.pyc
+*.egg-info/
+.ipynb_checkpoints/
+
+# Run outputs and artifacts
+output/
+*.pth
+*.log
+*.npy
+
+# --- config: templates only --------------------------------------------------
+# Everything else under config/ is experiment-specific or machine-generated
+# (see scripts/make_ensemble_configs_paper.py).
+config/*
+!config/train.yaml
+!config/eval.yaml
+
+# Generated configuration sets
+configs_auto/
+configs_loo/
+configs_subsetvar/
+
+# --- scripts: generic tooling only -------------------------------------------
+# The excluded files are one-off SLURM wrappers tied to particular runs on our
+# cluster; they are not useful outside it.
+scripts/*
+!scripts/generate_loreli_split.py
+!scripts/generate_loreli_budget_splits.py
+!scripts/make_ensemble_configs_paper.py
+!scripts/compute_ensemble_stats.py
+!scripts/run_train.sh
+!scripts/run_eval.sh
+!scripts/submit_eval_run.sh
+
+# --- data splits: the canonical split only -----------------------------------
+# Kept because the published comparison cannot be reproduced without it;
+# per-budget subsets are derived from it by scripts/generate_loreli_budget_splits.py
+data_splits/*
+!data_splits/loreli_split.npz
+
+# --- separate project --------------------------------------------------------
+src/data_tools/challenge_skatr_loader.py
+src/training/train_challenge.py

@@ -1,0 +1,87 @@
+# EoRFlow -- training configuration template.
+#
+# Every path below is a PLACEHOLDER: replace <...> with your own locations.
+# The two switches at the top select the workflow:
+#
+#   mode        ps1d | ps2d | cnn | skatr   which summary conditions the model
+#   inference   flow | cfm                  which density estimator is trained
+#   data_type   standard | skatr            raw lightcones vs precomputed summaries
+#   learn_target xhi | sim_params           neutral-fraction history vs astro params
+
+mode: ps1d
+inference: flow
+data: loreli
+data_type: standard
+learn_target: xhi
+use_amp: false
+
+# --- Precomputed-summary input (used only when data_type: skatr) --------------
+# Point `source_dirs` at directories of per-lightcone .npz summaries produced by
+# an encoder (see the SKATR repository). `source` picks one of the keys.
+skatr:
+  source: loreli
+  source_dirs:
+    21cmfast: <path/to/21cmfast_summaries>
+    loreli: <path/to/loreli_summaries>
+  # null -> default policy: drop the leading dummy parameter and keep the next 5
+  sim_param_indices: null
+  drop_tvir: true
+  num_sim_params: 5
+  normalize_cond: false
+  # Fit normalization statistics on the TRAINING split only, then reuse them at
+  # evaluation time. Leaving these unset risks train/test leakage through the
+  # statistics.
+  cond_normalization: zscore
+  normalize_sim_params: true
+  sim_param_log10_indices: null
+
+# --- Paths -------------------------------------------------------------------
+project_root: <path/to/EoRFlow-dev>
+database_path: <path/to/21cmfast_database>
+loreli_root: <path/to/loreli_database>
+output_subpath: output
+# Outputs land in {project_root}/{output_subpath}/{mode}/{data}/{output_tag}
+output_tag: my_run
+
+# --- Data --------------------------------------------------------------------
+num_files: null          # null = use all
+add_noise: false
+
+batch_size: 16
+num_workers: 8
+pin_memory: true
+persistent_workers: true
+
+# Redshift window. MUST match between training and evaluation.
+min_redshift_index: 3    # z ~ 6.5
+max_redshift_index: 15   # z ~ 12.0
+
+# --- Optimization and model --------------------------------------------------
+fixed_summary:
+  epochs: 1000
+  lr: 0.001
+  weight_decay: 0.0001
+  patience: 20
+
+  # Used when inference: flow
+  flow:
+    n_blocks: 10
+    n_nodes: 512
+    subnet_depth: 3
+    act: relu
+
+  # Used when inference: cfm
+  cfm:
+    n_layers: 5
+    hidden_dim: 1024
+    alpha: 0.0
+    p_drop: 0.0
+
+# --- Splits ------------------------------------------------------------------
+# Either give fractions, or set split_indices_path to a .npz with explicit
+# train/val/test index arrays. An explicit file is strongly preferred when
+# several models must share one test set -- it is the only way to guarantee no
+# leakage across pipelines. See scripts/generate_loreli_split.py.
+test_fraction: 0.1
+val_fraction: 0.1
+# split_indices_path: <path/to/split.npz>
