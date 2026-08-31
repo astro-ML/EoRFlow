@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+*.log
+
+# Challenge data products (power spectra, posterior FITS, figures) are kept in
+# the private development repository; this branch is a code-only snapshot.
+*.npz
+*.fits
+*.pdf
